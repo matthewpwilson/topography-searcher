@@ -151,34 +151,44 @@ class KineticTransitionNetwork:
             dump_dir = Path(text_path)    
 
         # Get dimensionality of minima
-        ndim = self.get_minimum_coords(0).shape[0]
         # Get minima data out of network
+        
         minima_data = np.empty((0, 2), dtype=object)
-        minima_coords = np.empty((0, ndim), dtype=object)
-        for i in range(self.n_minima):
-            e = self.G.nodes[i]['energy']
-            if not hasattr(e, '__iter__'):
-                    e = [e]
-            minima_data = np.append(
-                minima_data, [[i, e[0]]], axis=0)
-            minima_coords = np.append(
-                minima_coords, [self.G.nodes[i]['coords']], axis=0)
-        # Get transition state data out of the network
         ts_data = np.empty((0, 3), dtype=object)
-        ts_coords = np.empty((0, ndim), dtype=object)
-        for node1, node2, edge_idx in self.G.edges:
-            ts_data = np.append(
-                ts_data,
-                [[node1, node2, self.G[node1][node2][edge_idx]['energy']]], axis=0)
-            ts_coords = np.append(
-                ts_coords, [self.G[node1][node2][edge_idx]['coords']], axis=0)
+
+        if self.n_minima > 0:
+            ndim = self.get_minimum_coords(0).shape[0]
+            minima_coords = np.empty((0, ndim), dtype=object)
+            for i in range(self.n_minima):
+                e = self.G.nodes[i]['energy']
+                if not hasattr(e, '__iter__'):
+                        e = [e]
+                minima_data = np.append(
+                    minima_data, [[i, e[0]]], axis=0)
+                minima_coords = np.append(
+                    minima_coords, [self.G.nodes[i]['coords']], axis=0)
+        
+            # Get transition state data out of the network
+            ts_coords = np.empty((0, ndim), dtype=object)
+            for node1, node2, edge_idx in self.G.edges:
+                ts_data = np.append(
+                    ts_data,
+                    [[node1, node2, self.G[node1][node2][edge_idx]['energy']]], axis=0)
+                ts_coords = np.append(
+                    ts_coords, [self.G[node1][node2][edge_idx]['coords']], axis=0)
+        else:
+            minima_coords = np.empty((0, 2), dtype=object)
+            ts_coords = np.empty((0, 2), dtype=object)
+
+                
         # Write stationary point data and pairlist
         np.savetxt(dump_dir / f"ts.data{text_string}",
-                   ts_data, fmt='%i %i %.16e')
+                ts_data, fmt='%i %i %.16e')
         np.savetxt(dump_dir / f"ts.coords{text_string}", ts_coords)
         np.savetxt(dump_dir / f"min.data{text_string}",
-                   minima_data, fmt='%i %.16e')
+                minima_data, fmt='%i %.16e')
         np.savetxt(dump_dir / f"min.coords{text_string}", minima_coords)
+
         np.savetxt(dump_dir / f"pairlist{text_string}", self.pairlist, fmt='%i')
         np.savetxt(dump_dir / f"attempted.coords{text_string}", self.get_attempted_positions())
 

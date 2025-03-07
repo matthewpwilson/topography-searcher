@@ -143,6 +143,17 @@ def test_dump_network_to_default_path(tmp_path):
     assert ktn.n_ts == ktn_new.n_ts
     assert edges == edges_new
 
+def test_dumps_network_with_no_minima(tmp_path):
+    dump_path = str(tmp_path) + "/"
+    ktn = KineticTransitionNetwork(dump_path, ".new")
+    ktn.dump_network()
+
+    ktn_new = KineticTransitionNetwork(dump_path=dump_path, dump_suffix=".new")
+    ktn_new.read_network()
+
+    assert ktn.n_minima == 0
+
+
 def test_dump_network_appends_slash_if_needed(tmp_path):
     dest_path = str(tmp_path)
     ktn = KineticTransitionNetwork(dump_path=dest_path, dump_suffix=".new")
