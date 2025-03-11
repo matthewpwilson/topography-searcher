@@ -19,6 +19,18 @@ def test_runs_in_parallel():
         blocker.set()
         assert_that(next(results)).is_equal_to("FIRST") 
 
+def test_resuses_process_pool():
+    results1 = list(run_parallel(return_process_id, ["dog", "cat"], processes=2))
+    results2 = list(run_parallel(return_process_id, ["dog", "cat"], processes=2))
+    assert_that(results2).contains_only(*results1)
+
+def test_creates_new_process_pool_when_requested_size_different():
+    results1 = list(run_parallel(return_process_id, ["dog", "cat", "mouse"], processes=2))
+    results2 = list(run_parallel(return_process_id, ["dog", "cat", "mouse"], processes=3))
+    assert_that(results2).does_not_contain(*results1)
+    from topsearch.utils.parallel import executor
+    assert_that(executor._max_workers).is_equal_to(3)
+
 def return_process_id(input: str):
     return current_process().name
 
