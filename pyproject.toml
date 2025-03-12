@@ -19,6 +19,7 @@ nptyping = "^2.5.0"
 ase = "3.22.1"
 rdkit = "^2023.9.4"
 tqdm = "^4.06.2"
+optuna = "^4.2.1"
 [tool.poetry.group.dev.dependencies]
 pylint = "^3.0.2"
 pytest = "^7.4.3"

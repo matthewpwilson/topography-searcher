@@ -1,6 +1,7 @@
 """ Module that contains the ModelData class. This class stores and operates on
     a training dataset for use in machine learning applications """
 
+from copy import deepcopy
 import numpy as np
 from nptyping import NDArray
 from scipy.spatial import Delaunay
@@ -154,3 +155,11 @@ class ModelData:
     def point_in_hull(self, point: NDArray) -> bool:
         """ Determine if point is within convex hull of training data """
         return self.hull.find_simplex(point) >= 0
+
+    def data_subset(self, percent_points=100) -> "ModelData":
+        last_index = int(np.ceil(self.n_points*percent_points/100))
+        subset = deepcopy(self)
+        subset.training = self.training[0:last_index]
+        subset.response = self.response[0:last_index]
+        subset.n_points = subset.training.shape[0]
+        return subset

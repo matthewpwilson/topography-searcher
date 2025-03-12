@@ -148,6 +148,7 @@ def test_point_in_hull():
     in_hull = model_data.point_in_hull(point3)
     assert in_hull == False
 
+
 ###### LARGER DATASET ###########
 
 def test_initialisation2():
@@ -284,3 +285,11 @@ def test_feature_subset():
                                                                  [2.5657,  1.0,  5.0 ],
                                                                  [4.04402, 2.0,  6.0 ]])))
     assert model_data.n_dims == 3
+
+def test_data_subset_returns_requested_number_of_points():
+    model_data = ModelData(training_file=f'{current_dir}/test_data/training_model2.txt',
+                           response_file=f'{current_dir}/test_data/response_model2.txt')
+    subset = model_data.data_subset(percent_points=10)
+    assert subset.n_points == model_data.n_points/10
+    assert subset.training.shape[0] == subset.n_points
+    assert subset.response.shape[0] == subset.n_points

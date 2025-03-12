@@ -4,8 +4,10 @@
 from concurrent.futures import ProcessPoolExecutor, as_completed
 from functools import partial
 import logging
+import math
 from timeit import default_timer as timer
 import numpy as np
+import optuna
 from topsearch.data.kinetic_transition_network import KineticTransitionNetwork
 from topsearch.global_optimisation.perturbations import AtomicPerturbation, MolecularPerturbation, StandardPerturbation
 from topsearch.minimisation import lbfgs, psi4_internal
@@ -14,6 +16,7 @@ from topsearch.potentials.dft import DensityFunctionalTheory
 from topsearch.potentials.potential import Potential
 from topsearch.similarity.similarity import StandardSimilarity
 from topsearch.utils.parallel import run_parallel
+from topsearch.analysis.minima_properties import get_minima_energies
 from tqdm.auto import tqdm, trange
 
 class BasinHopping:
@@ -60,23 +63,36 @@ class BasinHopping:
         self.ignore_relreduc = ignore_relreduc
 
     def run_batch(self, initial_positions: np.ndarray, coords: type, n_steps: int, conv_crit: float,
-                temperature: float, num_proc=8) -> None:
+                temperature: float, num_proc=8, trial: optuna.trial.Trial=None) -> None:
         self.logger.debug(f"Running basin hopping for {len(initial_positions)} starting points with {num_proc} processes")
 
         run_step = partial(self.run_single, coords=coords, n_steps=n_steps, conv_crit=conv_crit, temperature=temperature)
 
+        i = 0
         for position, ktn in run_parallel(run_step, initial_positions, processes=num_proc, return_input=True):
-                for m in range(ktn.n_minima):
-                    try:
-                        coords.position = ktn.get_minimum_coords(m)
-                        self.logger.debug(f"New minimum value {ktn.get_minimum_energy(m)}")
-                        self.similarity.test_new_minimum(self.ktn, coords, ktn.get_minimum_energy(m))
-                    except KeyError:
-                        self.logger.error(f"Missing minimum index {m}. n_minima: {ktn.n_minima} Nodes in graph: {len(ktn.G.nodes)}.\n Keys: {ktn.G.nodes.keys()} ")
-                        ktn.dump_network("bad_minima")
-                
-                self.ktn.add_attempted_position(position)
-                self.ktn.dump_network()
+            for m in range(ktn.n_minima):
+                try:
+                    coords.position = ktn.get_minimum_coords(m)
+                    self.logger.debug(f"New minimum value {ktn.get_minimum_energy(m)}")
+                    self.similarity.test_new_minimum(self.ktn, coords, ktn.get_minimum_energy(m))
+                except KeyError:
+                    self.logger.error(f"Missing minimum index {m}. n_minima: {ktn.n_minima} Nodes in graph: {len(ktn.G.nodes)}.\n Keys: {ktn.G.nodes.keys()} ")
+                    ktn.dump_network("bad_minima")
+            
+            self.ktn.add_attempted_position(position)
+            self.ktn.dump_network()
+            if trial is not None:
+                if self.ktn.n_minima == 0:
+                    # Allow trials that haven't found any minima to be pruned
+                    trial.report(math.inf, i)
+                else: 
+                    energies = get_minima_energies(self.ktn)
+                    trial.report(np.where(energies > 0, energies, np.inf).min(), i)
+                    
+                if trial.should_prune():
+                    raise optuna.TrialPruned()
+
+            i += 1
            
     def run_single(self, position: np.ndarray, coords: type, n_steps: int, conv_crit: float,
                 temperature: float):
@@ -85,12 +101,12 @@ class BasinHopping:
             self.logger.debug(f"Starting position: {position}")
             self.logger.debug(f"Current KTN with n_minima: {self.ktn.n_minima} nodes in graph: {len(self.ktn.G.nodes)}")
             self.ktn.reset_network() # Clear the KTN to aovid returning a massive one
-            self.run(coords=coords, n_steps=n_steps, conv_crit=conv_crit, temperature=temperature)
+            self.run(coords=coords, n_steps=n_steps, conv_crit=conv_crit, temperature=temperature, hide_step_progress=True)
             self.logger.debug(f"Returning KTN with n_minima: {self.ktn.n_minima} nodes in graph: {len(self.ktn.G.nodes)}")
             return self.ktn
 
     def run(self, coords: StandardCoordinates | MolecularCoordinates | AtomicCoordinates, n_steps: int, conv_crit: float,
-            temperature: float) -> None:
+            temperature: float, trial: optuna.trial.Trial = None, hide_step_progress=False) -> None:
         """ Method to perform basin-hopping from a given start point """
         start_time = timer()
         self.write_initial_information(n_steps, temperature, conv_crit)
@@ -100,7 +116,7 @@ class BasinHopping:
         markov_coords = coords.position.copy()
         markov_energy = energy
         # Main loop for repeated perturbation, minimisation, and acceptance
-        for i in trange(n_steps, desc="Basin hopping - steps"):
+        for i in trange(n_steps, desc="Basin hopping - steps", disable=hide_step_progress):
             self.logger.debug(f"Step {i} of {n_steps}")
             #  Perturb coordinates
             self.step_taking.perturb(coords)
@@ -164,6 +180,13 @@ class BasinHopping:
                 self.similarity.test_new_minimum(self.ktn, coords, energy)
                 coords.position = markov_coords
                 energy = markov_energy
+            
+            if trial is not None:
+                trial.report(np.min(get_minima_energies(self.ktn)), i)
+
+                if trial.should_prune():
+                    raise optuna.TrialPruned()
+
         end_time = timer()
         self.write_final_information(start_time, end_time)
 

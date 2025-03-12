@@ -185,9 +185,12 @@ def test_reset_network():
                      text_string='.ktn')
     assert ktn.n_minima == 9
     assert ktn.n_ts == 8
+    ktn.add_attempted_position([0,0])
+    assert len(ktn.get_attempted_positions()) > 0
     ktn.reset_network()
     assert ktn.n_minima == 0
     assert ktn.n_ts == 0
+    assert len(ktn.get_attempted_positions()) == 0
 
 def test_get_minimum_coords():
     ktn = KineticTransitionNetwork()

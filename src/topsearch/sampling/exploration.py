@@ -9,6 +9,7 @@ import multiprocessing
 from copy import deepcopy
 import numpy as np
 from nptyping import NDArray
+import optuna
 
 from topsearch.utils.parallel import run_parallel
 from topsearch.data.coordinates import StandardCoordinates
@@ -75,7 +76,7 @@ class NetworkSampling:
                  double_ended_search: NudgedElasticBand,
                  similarity: StandardSimilarity,
                  multiprocessing_on: bool = False,
-                 n_processes: int = 0,
+                 n_processes: int = 1,
                  output_level: int = 0,
                  log_dir: str = os.getcwd(),
                  max_connection_attempts_per_pair = 3) -> None:
@@ -96,17 +97,17 @@ class NetworkSampling:
     # OVERALL LANDSCAPE EXPLORATION
 
     def get_minima(self, coords: StandardCoordinates, n_steps: int, conv_crit: float,
-                   temperature: float, test_valid: bool = True, initial_positions = None, num_proc=1) -> None:
+                   temperature: float, test_valid: bool = True, initial_positions = None, trial: optuna.trial.Trial = None) -> None:
         """ Perform global optimisation to locate low-valued minima """
         if initial_positions is not None:
             delta = set(map(tuple, self.ktn.get_attempted_positions()))
             remaining_positions = np.array([x for x in initial_positions if tuple(x) not in delta])
             self.logger.info(f"Skipping {len(initial_positions) - len(remaining_positions)} as they've already been attempted")
             self.global_optimiser.run_batch(initial_positions=remaining_positions, coords=coords, n_steps=n_steps,
-                                  conv_crit=conv_crit, temperature=temperature, num_proc=self.n_processes)   
+                                  conv_crit=conv_crit, temperature=temperature, num_proc=self.n_processes, trial=trial)   
         else:
             self.global_optimiser.run(coords=coords, n_steps=n_steps,
-                                  conv_crit=conv_crit, temperature=temperature)
+                                  conv_crit=conv_crit, temperature=temperature, trial=trial)
         # After finishing basin-hopping remove any minima that are not allowed
         if test_valid:
             invalid_min = get_invalid_minima(self.ktn,
@@ -116,7 +117,8 @@ class NetworkSampling:
 
     def get_transition_states(self, method: str, cycles: int,
                               remove_bounds_minima: bool = False,
-                              all_bounds: bool = False) -> None:
+                              all_bounds: bool = False,
+                              trial: optuna.trial.Trial = None) -> None:
         """ Default algorithm for generating a landscape from a set of minima.
             Combines different sampling methods in sequence to find transition
             states between minima and produce a fully connected network.
@@ -131,7 +133,7 @@ class NetworkSampling:
             self.ktn.remove_minima(bounds_minima)
         # Run a set of initial connections for all minima
         pairs = self.select_minima(self.coords, method, cycles)
-        self.run_connection_attempts(pairs)
+        self.run_connection_attempts(pairs, trial)
         # Remove any additional bounds minima found during sampling
         if remove_bounds_minima:
             if all_bounds:
@@ -142,7 +144,7 @@ class NetworkSampling:
 
     # CONNECTING MINIMA FUNCTIONS
 
-    def run_connection_attempts(self, total_pairs: list) -> None:
+    def run_connection_attempts(self, total_pairs: list, trial: optuna.trial.Trial) -> None:
         """
         Given the pairs of minima that have been selected for connection,
         run the connection attempts in parallel or serial and add any
@@ -156,7 +158,9 @@ class NetworkSampling:
         else: 
             results = ((pair, self.connection_attempt(pair)) for pair in total_pairs)    
 
+        i = 0
         for pair, stationary_point_information in results:   
+            i += 1
             self.logger.debug(f"Got a result for pair {pair}")
             self.ktn.pairlist = np.append(
                     self.ktn.pairlist, np.array([np.sort(pair)]), axis=0)
@@ -170,6 +174,13 @@ class NetworkSampling:
                                                 self.coords, j[1],
                                                 j[2], j[3],
                                                 j[4], j[5])
+                    
+                if trial is not None:
+                    trial.report(self.ktn.n_ts, i)
+            
+                    if trial.should_prune():
+                        raise optuna.TrialPruned()
+            
 
 
     def connection_attempt(self, pair: list) -> list:

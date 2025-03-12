@@ -114,7 +114,8 @@ def test_is_new_minimum():
     assert match == None
 
 def test_is_new_ts():
-    coords = StandardCoordinates(ndim=2, bounds=[(-500.0, 500.0),
+    coords = StandardCoordinates(ndim=3, bounds=[(-500.0, 500.0),
+                                                 (-500.0, 500.0),
                                                  (-500.0, 500.0)])
     similarity = StandardSimilarity(0.1, 0.1)
     ktn = KineticTransitionNetwork()
@@ -142,7 +143,8 @@ def test_is_new_ts():
     assert match2 == 1
 
 def test_test_new_minimum():
-    coords = StandardCoordinates(ndim=2, bounds=[(-500.0, 500.0),
+    coords = StandardCoordinates(ndim=3, bounds=[(-500.0, 500.0),
+                                                 (-500.0, 500.0),
                                                  (-500.0, 500.0)])
     similarity = StandardSimilarity(0.1, 0.1)
     ktn = KineticTransitionNetwork()
@@ -161,7 +163,8 @@ def test_test_new_minimum():
     assert min_energy == pytest.approx(-2.2938)
 
 def test_test_new_ts():
-    coords = StandardCoordinates(ndim=2, bounds=[(-500.0, 500.0),
+    coords = StandardCoordinates(ndim=3, bounds=[(-500.0, 500.0),
+                                                 (-500.0, 500.0),
                                                  (-500.0, 500.0)])
     similarity = StandardSimilarity(0.1, 0.1)
     ktn = KineticTransitionNetwork()

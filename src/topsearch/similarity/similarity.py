@@ -114,7 +114,7 @@ class StandardSimilarity:
         return True, None
 
     def is_new_ts(self, ktn: KineticTransitionNetwork, ts_coords: StandardCoordinates,
-                  ts_energy: float) -> tuple[bool, NDArray]:
+                  ts_energy: float) -> tuple[bool, int, int]:
         """ Compare transition state to all other currently in the network G
             and return False if same as any of them """
 
@@ -139,7 +139,7 @@ class StandardSimilarity:
         if not self.is_new_minimum(ktn, min_coords, min_energy)[0]:
             return
         ktn.add_minimum(min_coords.position, min_energy)
-        self.logger.debug(f"New minimum with energy {min_energy}")
+        #self.logger.debug(f"New minimum with energy {min_energy}")
 
     def test_new_ts(self, ktn: KineticTransitionNetwork,
                     ts_coords: StandardCoordinates, ts_energy: float,

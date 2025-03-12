@@ -135,6 +135,7 @@ class KineticTransitionNetwork:
         self.n_minima = 0
         self.n_ts = 0
         self.pairlist = np.empty((0, 2), dtype=int)
+        self.initial_positions_attempted = []
 
     def dump_network(self, text_string: str = '', text_path: str ='') -> None:
         """

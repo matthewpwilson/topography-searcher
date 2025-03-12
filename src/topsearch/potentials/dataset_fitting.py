@@ -27,10 +27,12 @@ class DatasetInterpolation(Potential):
     model: class
         The scipy interpolation model that can be fit and queried
     """
-    def __init__(self, model_data: ModelData, smoothness: float = 0.0) -> None:
+    def __init__(self, model_data: ModelData, smoothness: float = 0.0, shape = 1.0, kernel = "thin_plate_spline") -> None:
         self.atomistic = False
         self.model_data = model_data
         self.smoothness = smoothness
+        self.shape = shape
+        self.kernel = kernel
         self.model = None
         self.initialise_model()
 
@@ -39,17 +41,24 @@ class DatasetInterpolation(Potential):
             interpolation with a thin-plate kernel as implemented in scipy """
         self.model = RBFInterpolator(self.model_data.training,
                                      self.model_data.response,
-                                     smoothing=self.smoothness)
+                                     smoothing=self.smoothness,
+                                     epsilon=self.shape,
+                                     kernel=self.kernel)
 
     def function(self, position: NDArray) -> float:
         """ Evaluate the value of the interpolation model """
         return float(self.model(position.reshape(1, -1)))
 
+    def function_vector(self, position: NDArray) -> NDArray:
+        return self.model(position)
+    
     def refit_model(self) -> None:
         """ Refit the interpolation model for the current model_data """
         self.model = RBFInterpolator(self.model_data.training,
                                      self.model_data.response,
-                                     smoothing=self.smoothness)
+                                     smoothing=self.smoothness,
+                                     epsilon=self.shape,
+                                     kernel=self.kernel)
 
 
 class DatasetRegression(Potential):
