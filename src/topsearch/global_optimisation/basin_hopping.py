@@ -88,7 +88,8 @@ class BasinHopping:
                 else: 
                     energies = get_minima_energies(self.ktn)
                     trial.report(np.where(energies > 0, energies, np.inf).min(), i)
-                    
+                
+                trial.set_user_attr("n_minima", self.ktn.n_minima)    
                 if trial.should_prune():
                     raise optuna.TrialPruned()
 

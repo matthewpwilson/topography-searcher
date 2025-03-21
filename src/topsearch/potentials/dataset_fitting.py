@@ -4,6 +4,7 @@
 
 import numpy as np
 from nptyping import NDArray
+from sklearn.neighbors import KNeighborsRegressor
 from sklearn.neural_network import MLPRegressor
 from sklearn.model_selection import cross_validate, KFold
 from scipy.interpolate import RBFInterpolator
@@ -39,6 +40,7 @@ class DatasetInterpolation(Potential):
     def initialise_model(self) -> None:
         """ Initialise the interpolation model, a radial basis function
             interpolation with a thin-plate kernel as implemented in scipy """
+        
         self.model = RBFInterpolator(self.model_data.training,
                                      self.model_data.response,
                                      smoothing=self.smoothness,
@@ -79,10 +81,13 @@ class DatasetRegression(Potential):
         The results of cross-validation fitting of MLP
     """
 
-    def __init__(self, model_data: ModelData, model_rand: int = 1) -> None:
+    def __init__(self, model_data: ModelData, model_rand: int = 1, model_type="MLP", neighbors=5) -> None:
         self.atomistic = False
         self.model_data = model_data
         self.model_rand = model_rand
+        self.model_type = model_type
+        self.neighbors = neighbors
+
         self.model = None
         self.cv_results = None
         self.initialise_model()
@@ -90,7 +95,12 @@ class DatasetRegression(Potential):
     def initialise_model(self) -> None:
         """ Initialise the regression model, a multi-layer perceptron
             as implemented in sklearn """
-        self.model = MLPRegressor(random_state=self.model_rand, max_iter=1000)
+        
+        if self.model_type == "KNeighbors":
+            self.model = KNeighborsRegressor(n_neighbors=self.neighbors, weights='distance')
+        else:
+            self.model = MLPRegressor(random_state=self.model_rand, max_iter=1000)
+        
         self.model.fit(self.model_data.training, self.model_data.response)
         cv = KFold(n_splits=5, shuffle=True, random_state=self.model_rand)
         self.cv_results = cross_validate(self.model,

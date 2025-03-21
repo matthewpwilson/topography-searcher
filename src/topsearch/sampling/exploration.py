@@ -110,6 +110,7 @@ class NetworkSampling:
                                   conv_crit=conv_crit, temperature=temperature, trial=trial)
         # After finishing basin-hopping remove any minima that are not allowed
         if test_valid:
+            self.logger.debug("Validating minima")
             invalid_min = get_invalid_minima(self.ktn,
                                              self.global_optimiser.potential,
                                              coords)
@@ -118,7 +119,8 @@ class NetworkSampling:
     def get_transition_states(self, method: str, cycles: int,
                               remove_bounds_minima: bool = False,
                               all_bounds: bool = False,
-                              trial: optuna.trial.Trial = None) -> None:
+                              trial: optuna.trial.Trial = None,
+                              percent_pairs: int = 100) -> None:
         """ Default algorithm for generating a landscape from a set of minima.
             Combines different sampling methods in sequence to find transition
             states between minima and produce a fully connected network.
@@ -133,6 +135,11 @@ class NetworkSampling:
             self.ktn.remove_minima(bounds_minima)
         # Run a set of initial connections for all minima
         pairs = self.select_minima(self.coords, method, cycles)
+        last_pair = int(np.ceil(len(pairs)*percent_pairs/100))
+        pairs = pairs[:last_pair]
+        if last_pair < len(pairs):
+            self.logger.info("Considering only {last_pair} minima pairs")
+
         self.run_connection_attempts(pairs, trial)
         # Remove any additional bounds minima found during sampling
         if remove_bounds_minima:
@@ -159,7 +166,7 @@ class NetworkSampling:
             results = ((pair, self.connection_attempt(pair)) for pair in total_pairs)    
 
         i = 0
-        for pair, stationary_point_information in results:   
+        for pair, stationary_point_information in tqdm(results, total=len(total_pairs), desc="Minima pairs"):
             i += 1
             self.logger.debug(f"Got a result for pair {pair}")
             self.ktn.pairlist = np.append(
