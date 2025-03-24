@@ -81,7 +81,7 @@ class HybridEigenvectorFollowing:
         self.remove_trans_rot = None
         self.output_level = output_level
         self.logger = logging.getLogger("HEF")
-        self.logger.info("ts_conv_crit = %e, ts_steps = %im", ts_conv_crit, ts_steps)
+        self.logger.info("ts_conv_crit = %e, ts_steps = %i, pushoff = %e", ts_conv_crit, ts_steps, pushoff)
         self.logger.info("steepest_descent_conv_crit = %e, max_uphill_step_size = %e, min_uphill_step_size = %e", steepest_descent_conv_crit, max_uphill_step_size, min_uphill_step_size)
         self.logger.info("positive_eigenvalue_step = %e, eigenvalue_conv_crit= %e", positive_eigenvalue_step, eigenvalue_conv_crit)
 
