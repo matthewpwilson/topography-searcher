@@ -23,7 +23,7 @@ from topsearch.transition_states.nudged_elastic_band import NudgedElasticBand
 from ..analysis.pair_selection import connect_unconnected, \
     closest_enumeration, read_pairs
 from ..analysis.minima_properties import get_invalid_minima, \
-    get_bounds_minima, get_all_bounds_minima
+    get_bounds_minima, get_all_bounds_minima, validate_minima
 from ..minimisation import lbfgs
 from tqdm.auto import tqdm
 from multiprocessing import current_process
@@ -98,7 +98,7 @@ class NetworkSampling:
     # OVERALL LANDSCAPE EXPLORATION
 
     def get_minima(self, coords: StandardCoordinates, n_steps: int, conv_crit: float,
-                   temperature: float, test_valid: bool = True, initial_positions = None, trial: optuna.trial.Trial = None, prune = True) -> None:
+                   temperature: float, test_valid: bool = True, test_valid_lbfgs = False, initial_positions = None, trial: optuna.trial.Trial = None, prune = True) -> None:
         """ Perform global optimisation to locate low-valued minima """
         if initial_positions is not None:
             delta = set(map(tuple, self.ktn.get_attempted_positions()))
@@ -115,13 +115,22 @@ class NetworkSampling:
        
 
         # After finishing basin-hopping remove any minima that are not allowed
+        if test_valid_lbfgs:
+            self.logger.debug("Validating minima using lbfgs")
+
+            invalid_min_lbfgs = validate_minima(self.ktn, coords, self.global_optimiser.potential)
+            self.logger.info(f"Found {len(invalid_min_lbfgs)} invalid minima due to mismatch with lbfgs")
+            self.ktn.remove_minima(invalid_min_lbfgs)
+        
         if test_valid:
-            self.logger.debug("Validating minima")
+            self.logger.debug("Validating minima using eigenvalues")
             invalid_min = get_invalid_minima(self.ktn,
                                              self.global_optimiser.potential,
                                              coords)
+            self.logger.info(f"Found {len(invalid_min)} invalid minima due to eigenvalues")
             self.ktn.remove_minima(invalid_min)
 
+    
     def get_transition_states(self, method: str, cycles: int,
                               remove_bounds_minima: bool = False,
                               all_bounds: bool = False,

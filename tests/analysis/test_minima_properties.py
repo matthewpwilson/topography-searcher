@@ -1,3 +1,4 @@
+from assertpy import assert_that
 import pytest
 import numpy as np
 import os
@@ -24,6 +25,23 @@ def test_get_invalid_minima():
         minimum = ktn.get_minimum_coords(i)
         ktn.G.nodes[i]['coords'] = minimum*100.0
     minima = get_invalid_minima(ktn, schwefel, coords)
+    assert np.all(minima == np.array([]))
+    ktn.add_minimum(np.array([6.2541, 113.8487, 426.3035]), -0.89487)
+    minima = get_invalid_minima(ktn, schwefel, coords)
+    assert np.all(minima == np.array([9]))
+
+def test_get_invalid_minima_parallel():
+    coords = StandardCoordinates(ndim=3, bounds=[(-5.0, 5.0),
+                                                 (-5.0, 5.0),
+                                                 (-5.0, 5.0)])
+    schwefel = Schwefel()
+    ktn = KineticTransitionNetwork()
+    ktn.read_network(text_path=f'{current_dir}/test_data/',
+                     text_string='.analysis')
+    for i in range(ktn.n_minima):
+        minimum = ktn.get_minimum_coords(i)
+        ktn.G.nodes[i]['coords'] = minimum*100.0
+    minima = get_invalid_minima(ktn, schwefel, coords, processes=2)
     assert np.all(minima == np.array([]))
     ktn.add_minimum(np.array([6.2541, 113.8487, 426.3035]), -0.89487)
     minima = get_invalid_minima(ktn, schwefel, coords)
@@ -129,6 +147,13 @@ def ktn_single_minimum() -> KineticTransitionNetwork:
     ktn.add_minimum(np.array([0,0,0]), 0)
     return ktn
 
+@pytest.fixture
+def ktn_multiple_minima(ktn_single_minimum) -> KineticTransitionNetwork:
+    ktn_single_minimum.add_minimum(np.array([0.5,0.5,0.5]), 0.5)
+    ktn_single_minimum.add_minimum(np.array([1,1,1]), 1)
+
+    return ktn_single_minimum
+
 @pytest.fixture()
 def coords_3d() -> StandardCoordinates:
     return StandardCoordinates(ndim=3, bounds=[(-1.0, 1.0),
@@ -147,7 +172,7 @@ def coords_3d() -> StandardCoordinates:
 def test_validate_succeeds_when_lbfgs_results_close_to_min_coords(mocker, ktn_single_minimum: KineticTransitionNetwork, coords_3d, min_coords):
     mock_fmin = mocker.patch("topsearch.analysis.minima_properties.fmin_l_bfgs_b")
     mock_fmin.return_value = (np.array(min_coords), 0, None)
-    validate_minima(ktn_single_minimum, None, coords_3d, mocker.MagicMock())
+    validate_minima(ktn_single_minimum, coords_3d, mocker.MagicMock())
 
 @pytest.mark.parametrize(
     "min_coords",
@@ -161,19 +186,36 @@ def test_validate_succeeds_when_lbfgs_results_close_to_min_coords(mocker, ktn_si
 def test_validate_throws_when_lbfgs_results_do_not_match_min_coords(mocker, ktn_single_minimum: KineticTransitionNetwork, coords_3d, min_coords):
     mock_fmin = mocker.patch("topsearch.analysis.minima_properties.fmin_l_bfgs_b")
     mock_fmin.return_value = (np.array(min_coords), 0, None)
-    with pytest.raises(AssertionError):
-        validate_minima(ktn_single_minimum, None, coords_3d, mocker.MagicMock())
+    
+    invalid_minima =  validate_minima(ktn_single_minimum, coords_3d, mocker.MagicMock())
+    assert_that(invalid_minima).contains_only(0)
 
-def test_validate_throws_when_lbfgs_results_do_not_match_min_energy(mocker, ktn_single_minimum: KineticTransitionNetwork, coords_3d):
+def test_validate_flags_invalid_when_lbfgs_results_do_not_match_min_energy(mocker, ktn_single_minimum: KineticTransitionNetwork, coords_3d):
     mock_fmin = mocker.patch("topsearch.analysis.minima_properties.fmin_l_bfgs_b")
     mock_fmin.return_value = (np.array([0,0,0]), 0.01, None)
-    with pytest.raises(AssertionError):
-        validate_minima(ktn_single_minimum, None, coords_3d, mocker.MagicMock())
+    
+    assert_that(validate_minima(ktn_single_minimum, coords_3d, mocker.MagicMock())).contains_only(0)
+
+def test_validate_flags_invalid_when_some_lbfgs_results_do_not_match_min_energy(mocker, ktn_multiple_minima: KineticTransitionNetwork, coords_3d):
+    mock_fmin = mocker.patch("topsearch.analysis.minima_properties.fmin_l_bfgs_b")
+    mock_fmin.return_value = (np.array([0,0,0]), 0.0001, None)
+    
+    assert_that(validate_minima(ktn_multiple_minima, coords_3d, mocker.MagicMock())).contains_only(1,2)    
+
 
 def test_validate_succeeds_when_lbfgs_results_close_to_min_energy(mocker, ktn_single_minimum: KineticTransitionNetwork, coords_3d):
     mock_fmin = mocker.patch("topsearch.analysis.minima_properties.fmin_l_bfgs_b")
     mock_fmin.return_value = (np.array([0,0,0]), 0.0001, None)
-    validate_minima(ktn_single_minimum, None, coords_3d, mocker.MagicMock())      
+    invalid_minima = validate_minima(ktn_single_minimum, coords_3d, mocker.MagicMock())      
+    assert_that(invalid_minima).is_empty()
+
+def test_validate_succeeds_when_all_lbfgs_results_close_to_min_energy(mocker, ktn_multiple_minima: KineticTransitionNetwork, coords_3d):
+    mock_fmin = mocker.patch("topsearch.analysis.minima_properties.fmin_l_bfgs_b")
+    mock_fmin.side_effect = [(np.array([0,0,0]), 0.0001, None),
+                             (np.array([0.5,0.5,0.5]), 0.5001, None),
+                             (np.array([1,1,1]), 0.9999, None)]
+    invalid_minima = validate_minima(ktn_multiple_minima, coords_3d, mocker.MagicMock())      
+    assert_that(invalid_minima).is_empty()
 
 def test_validate_succeeds_when_gradient_close_to_zero(mocker, ktn_single_minimum, coords_3d):
     mock_fmin = mocker.patch("topsearch.analysis.minima_properties.fmin_l_bfgs_b")
@@ -181,9 +223,11 @@ def test_validate_succeeds_when_gradient_close_to_zero(mocker, ktn_single_minimu
 
     interpolation = mocker.MagicMock()
     interpolation.gradient = mocker.MagicMock(return_value=[0.001,0.001,0.001])
-    validate_minima(ktn_single_minimum, None, coords_3d, interpolation)     
+    invalid_minima = validate_minima(ktn_single_minimum, coords_3d, interpolation)     
+    assert_that(invalid_minima).is_empty()
 
-def test_validate_succeeds_when_gradient_close_to_zero_except_at_lower_bounds(mocker, ktn_single_minimum, coords_3d):
+
+def test_validate_succeeds_when_gradient_close_to_zero_except_at_upper_bounds(mocker, ktn_single_minimum, coords_3d):
     mock_fmin = mocker.patch("topsearch.analysis.minima_properties.fmin_l_bfgs_b")
     mock_fmin.return_value = (np.array([1,0,1]), 0.0001, None)
 
@@ -192,7 +236,9 @@ def test_validate_succeeds_when_gradient_close_to_zero_except_at_lower_bounds(mo
 
     interpolation = mocker.MagicMock()
     interpolation.gradient = mocker.MagicMock(return_value=[1,0.001,1])
-    validate_minima(ktn, None, coords_3d, interpolation) 
+    invalid_minima = validate_minima(ktn, coords_3d, interpolation) 
+    assert_that(invalid_minima).is_empty()
+
 
 def test_validate_succeeds_when_gradient_close_to_zero_except_at_lower_bounds(mocker, ktn_single_minimum, coords_3d):
     mock_fmin = mocker.patch("topsearch.analysis.minima_properties.fmin_l_bfgs_b")
@@ -203,34 +249,37 @@ def test_validate_succeeds_when_gradient_close_to_zero_except_at_lower_bounds(mo
 
     interpolation = mocker.MagicMock()
     interpolation.gradient = mocker.MagicMock(return_value=[1,0.001,1])
-    validate_minima(ktn, None, coords_3d, interpolation)     
+    invalid_minima = validate_minima(ktn, coords_3d, interpolation)     
+    assert_that(invalid_minima).is_empty()
 
-def test_validate_throws_when_gradient_not_close_to_zero(mocker, ktn_single_minimum, coords_3d):
+def test_validate_flags_when_gradient_not_close_to_zero(mocker, ktn_single_minimum, coords_3d):
     mock_fmin = mocker.patch("topsearch.analysis.minima_properties.fmin_l_bfgs_b")
     mock_fmin.return_value = (np.array([0,0,0]), 0.0001, None)
 
     interpolation = mocker.MagicMock()
     interpolation.gradient = mocker.MagicMock(return_value=np.array([1,1,1]))
-    with pytest.raises(AssertionError):
-        validate_minima(ktn_single_minimum, None, coords_3d, interpolation)   
+   
+    invalid_minima = validate_minima(ktn_single_minimum, coords_3d, interpolation)   
+    assert_that(invalid_minima).contains_only(0)
 
-def test_validate_throws_when_f_plus_less_than_minimum_energy(mocker, ktn_single_minimum, coords_3d):
+def test_validate_flags_when_f_plus_less_than_minimum_energy(mocker, ktn_single_minimum, coords_3d):
     mock_fmin = mocker.patch("topsearch.analysis.minima_properties.fmin_l_bfgs_b")
     mock_fmin.return_value = (np.array([0,0,0]), 0.0001, None)
 
     interpolation = mocker.MagicMock()
     interpolation.gradient = mocker.MagicMock(return_value=np.array([0,0,0]))
     interpolation.function = mocker.MagicMock(return_value=0)
-    with pytest.raises(AssertionError):
-        validate_minima(ktn_single_minimum, None, coords_3d, interpolation)          
+    invalid_minima = validate_minima(ktn_single_minimum, coords_3d, interpolation)          
+    assert_that(invalid_minima).contains_only(0)
+    
 
 
-def test_validate_throws_when_f_minus_less_than_minimum_energy(mocker, ktn_single_minimum, coords_3d):
+def test_validate_flags_when_f_minus_less_than_minimum_energy(mocker, ktn_single_minimum, coords_3d):
     mock_fmin = mocker.patch("topsearch.analysis.minima_properties.fmin_l_bfgs_b")
     mock_fmin.return_value = (np.array([0,0,0]), 0.0001, None)
 
     interpolation = mocker.MagicMock()
     interpolation.gradient = mocker.MagicMock(return_value=np.array([0,0,0]))
     interpolation.function = mocker.MagicMock(side_effect=[1,0])
-    with pytest.raises(AssertionError):
-        validate_minima(ktn_single_minimum, None, coords_3d, interpolation)               
+    invalid_minima = validate_minima(ktn_single_minimum, coords_3d, interpolation)               
+    assert_that(invalid_minima).contains_only(0)

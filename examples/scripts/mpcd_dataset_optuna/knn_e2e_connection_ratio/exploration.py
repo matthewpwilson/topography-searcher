@@ -94,7 +94,7 @@ def exploration(trial: optuna.Trial, percent_pairs=100, ts_steps=200):
                         n_steps=5,
                         conv_crit=trial.suggest_float('conv_crit', 1e-6, 1e-1),
                         temperature=trial.suggest_float('temperature', 10.0, 100.0),
-                        test_valid=True,
+                        test_valid_lbfgs=True,
                         initial_positions=model_data.training,
                         trial=trial,
                         prune=False)
