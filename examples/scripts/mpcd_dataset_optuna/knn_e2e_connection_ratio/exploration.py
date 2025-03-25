@@ -100,11 +100,11 @@ def exploration(trial: optuna.Trial, percent_pairs=100, ts_steps=200):
     
     if ktn.n_minima > 0: 
         energies = get_minima_energies(ktn)
+        trial.set_user_attr("smallest_min_energy", np.where(energies > 0, energies, np.inf).min())
     else:
         energies = [math.inf]
 
     trial.set_user_attr("n_minima", ktn.n_minima)
-    trial.set_user_attr("smallest_min_energy", np.where(energies > 0, energies, np.inf).min())
 
     ktn.dump_network(f".trial_{trial.number}")
 
