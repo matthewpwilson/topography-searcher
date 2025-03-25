@@ -93,21 +93,27 @@ class NetworkSampling:
         self.max_connection_attempts_per_pair = max_connection_attempts_per_pair
                                         
         self.output_level = output_level
+        self.ts_first_step = 0
 
     # OVERALL LANDSCAPE EXPLORATION
 
     def get_minima(self, coords: StandardCoordinates, n_steps: int, conv_crit: float,
-                   temperature: float, test_valid: bool = True, initial_positions = None, trial: optuna.trial.Trial = None) -> None:
+                   temperature: float, test_valid: bool = True, initial_positions = None, trial: optuna.trial.Trial = None, prune = True) -> None:
         """ Perform global optimisation to locate low-valued minima """
         if initial_positions is not None:
             delta = set(map(tuple, self.ktn.get_attempted_positions()))
             remaining_positions = np.array([x for x in initial_positions if tuple(x) not in delta])
             self.logger.info(f"Skipping {len(initial_positions) - len(remaining_positions)} as they've already been attempted")
             self.global_optimiser.run_batch(initial_positions=remaining_positions, coords=coords, n_steps=n_steps,
-                                  conv_crit=conv_crit, temperature=temperature, num_proc=self.n_processes, trial=trial)   
+                                  conv_crit=conv_crit, temperature=temperature, num_proc=self.n_processes, trial=trial, prune=prune)   
+            if trial is not None:
+                self.ts_first_step = len(initial_positions)
         else:
             self.global_optimiser.run(coords=coords, n_steps=n_steps,
                                   conv_crit=conv_crit, temperature=temperature, trial=trial)
+       
+       
+
         # After finishing basin-hopping remove any minima that are not allowed
         if test_valid:
             self.logger.debug("Validating minima")
@@ -120,7 +126,8 @@ class NetworkSampling:
                               remove_bounds_minima: bool = False,
                               all_bounds: bool = False,
                               trial: optuna.trial.Trial = None,
-                              percent_pairs: int = 100) -> None:
+                              percent_pairs: int = 100,
+                              connection_ratio=False) -> None:
         """ Default algorithm for generating a landscape from a set of minima.
             Combines different sampling methods in sequence to find transition
             states between minima and produce a fully connected network.
@@ -129,18 +136,19 @@ class NetworkSampling:
         # Remove any edge cases that are high in energy and not connected
         if remove_bounds_minima:
             if all_bounds:
+                self.logger.debug("Removing minima at bounds in all dimensions")
                 bounds_minima = get_all_bounds_minima(self.ktn, self.coords)
             else:
+                self.logger.debug("Removing minima at bounds in any dimension")
                 bounds_minima = get_bounds_minima(self.ktn, self.coords)
             self.ktn.remove_minima(bounds_minima)
         # Run a set of initial connections for all minima
+        self.logger.debug("Selecting minima pairs")
         pairs = self.select_minima(self.coords, method, cycles)
         last_pair = int(np.ceil(len(pairs)*percent_pairs/100))
         pairs = pairs[:last_pair]
-        if last_pair < len(pairs):
-            self.logger.info("Considering only {last_pair} minima pairs")
-
-        self.run_connection_attempts(pairs, trial)
+       
+        self.run_connection_attempts(pairs, trial, connection_ratio)
         # Remove any additional bounds minima found during sampling
         if remove_bounds_minima:
             if all_bounds:
@@ -151,21 +159,21 @@ class NetworkSampling:
 
     # CONNECTING MINIMA FUNCTIONS
 
-    def run_connection_attempts(self, total_pairs: list, trial: optuna.trial.Trial) -> None:
+    def run_connection_attempts(self, total_pairs: list, trial: optuna.trial.Trial, connection_ratio) -> None:
         """
         Given the pairs of minima that have been selected for connection,
         run the connection attempts in parallel or serial and add any
         new transition states to the network
         """
         self.logger.info(f"Running connection attempts for {len(total_pairs)} pairs")
-
+        trial.set_user_attr("attempted_pairs", len(total_pairs))
         # Set off connection attempts from the list total_pairs
         if self.multiprocessing_on:
             results = run_parallel(self.connection_attempt, total_pairs, processes=self.n_processes, return_input=True)
         else: 
             results = ((pair, self.connection_attempt(pair)) for pair in total_pairs)    
 
-        i = 0
+        i = self.ts_first_step
         for pair, stationary_point_information in tqdm(results, total=len(total_pairs), desc="Minima pairs"):
             i += 1
             self.logger.debug(f"Got a result for pair {pair}")
@@ -183,7 +191,10 @@ class NetworkSampling:
                                                 j[4], j[5])
                     
                 if trial is not None:
-                    trial.report(self.ktn.n_ts, i)
+                    if connection_ratio:
+                        trial.report(self.ktn.n_ts/len(total_pairs), i)
+                    else:
+                        trial.report(self.ktn.n_ts, i)
             
                     if trial.should_prune():
                         raise optuna.TrialPruned()

@@ -156,8 +156,8 @@ class ModelData:
         """ Determine if point is within convex hull of training data """
         return self.hull.find_simplex(point) >= 0
 
-    def data_subset(self, percent_points=100) -> "ModelData":
-        last_index = int(np.ceil(self.n_points*percent_points/100))
+    def data_subset(self, percent_points=100, min_points=50) -> "ModelData":
+        last_index = max(min_points, int(np.ceil(self.n_points*percent_points/100)))
         subset = deepcopy(self)
         subset.training = self.training[0:last_index]
         subset.response = self.response[0:last_index]

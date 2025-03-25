@@ -63,7 +63,7 @@ class BasinHopping:
         self.ignore_relreduc = ignore_relreduc
 
     def run_batch(self, initial_positions: np.ndarray, coords: type, n_steps: int, conv_crit: float,
-                temperature: float, num_proc=8, trial: optuna.trial.Trial=None) -> None:
+                temperature: float, num_proc=8, trial: optuna.trial.Trial=None, prune = True) -> None:
         self.logger.debug(f"Running basin hopping for {len(initial_positions)} starting points with {num_proc} processes")
 
         run_step = partial(self.run_single, coords=coords, n_steps=n_steps, conv_crit=conv_crit, temperature=temperature)
@@ -90,7 +90,7 @@ class BasinHopping:
                     trial.report(np.where(energies > 0, energies, np.inf).min(), i)
                 
                 trial.set_user_attr("n_minima", self.ktn.n_minima)    
-                if trial.should_prune():
+                if prune and trial.should_prune():
                     raise optuna.TrialPruned()
 
             i += 1
