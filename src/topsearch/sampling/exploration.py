@@ -118,9 +118,11 @@ class NetworkSampling:
         if test_valid_lbfgs:
             self.logger.debug("Validating minima using lbfgs")
 
-            invalid_min_lbfgs = validate_minima(self.ktn, coords, self.global_optimiser.potential)
+            invalid_min_lbfgs = validate_minima(self.ktn, coords, self.global_optimiser.potential, processes=self.n_processes)
             self.logger.info(f"Found {len(invalid_min_lbfgs)} invalid minima due to mismatch with lbfgs")
             self.ktn.remove_minima(invalid_min_lbfgs)
+            if trial is not None:
+                trial.set_user_attr("invalid_min_lbfgs", len(invalid_min_lbfgs))
         
         if test_valid:
             self.logger.debug("Validating minima using eigenvalues")
@@ -182,7 +184,7 @@ class NetworkSampling:
         else: 
             results = ((pair, self.connection_attempt(pair)) for pair in total_pairs)    
 
-        i = self.ts_first_step
+        i = 0
         for pair, stationary_point_information in tqdm(results, total=len(total_pairs), desc="Minima pairs"):
             i += 1
             self.logger.debug(f"Got a result for pair {pair}")

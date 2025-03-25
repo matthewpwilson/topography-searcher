@@ -1,3 +1,4 @@
+from multiprocessing import current_process
 from assertpy import assert_that
 import pytest
 import numpy as np
@@ -5,11 +6,16 @@ import os
 from topsearch.data.kinetic_transition_network import KineticTransitionNetwork
 from topsearch.data.coordinates import StandardCoordinates
 from topsearch.similarity.similarity import StandardSimilarity
-from topsearch.potentials.test_functions import Schwefel
+from topsearch.potentials.test_functions import Camelback, Schwefel
 from topsearch.analysis.minima_properties import get_bounds_minima, \
         get_minima_above_cutoff, get_minima_energies, get_ordered_minima, \
         get_all_bounds_minima, get_similar_minima, get_invalid_minima, \
         get_distance_matrix, get_distance_from_minimum, validate_minima
+import logging
+logging.basicConfig(format='%(asctime)s %(name)-16s %(levelname)-8s %(message)s',
+                    level="DEBUG",
+                    datefmt='%Y-%m-%d %H:%M:%S',
+                    filename=f"/Users/mattwil/git/TopographySearcher/test_logs/logfile_{current_process().name}")
 
 current_dir = os.path.dirname(os.path.dirname((os.path.realpath(__file__))))
 
@@ -30,23 +36,21 @@ def test_get_invalid_minima():
     minima = get_invalid_minima(ktn, schwefel, coords)
     assert np.all(minima == np.array([9]))
 
-def test_get_invalid_minima_parallel():
-    coords = StandardCoordinates(ndim=3, bounds=[(-5.0, 5.0),
-                                                 (-5.0, 5.0),
-                                                 (-5.0, 5.0)])
-    schwefel = Schwefel()
+def test_validate_minima_with_lbfgs_parallel():
+    
+    
+    coords = StandardCoordinates(ndim=2, bounds=[(-3.0, 3.0), (-2.0, 2.0)])
     ktn = KineticTransitionNetwork()
-    ktn.read_network(text_path=f'{current_dir}/test_data/',
-                     text_string='.analysis')
-    for i in range(ktn.n_minima):
-        minimum = ktn.get_minimum_coords(i)
-        ktn.G.nodes[i]['coords'] = minimum*100.0
-    minima = get_invalid_minima(ktn, schwefel, coords, processes=2)
-    assert np.all(minima == np.array([]))
-    ktn.add_minimum(np.array([6.2541, 113.8487, 426.3035]), -0.89487)
-    minima = get_invalid_minima(ktn, schwefel, coords)
-    assert np.all(minima == np.array([9]))
+    ktn.add_minimum(np.array([0.08984199, -0.7126564 ]), -1.0316284534898734)
+    ktn.add_minimum(np.array([0, 1]), 1)
+    ktn.add_minimum(np.array([1.60710479, 0.56865138]), 2.104250310311282)
+    ktn.add_minimum(np.array([0, 1]), -0)
+    ktn.add_minimum(np.array([1.5, 1.5]), -0)
 
+    potential = Camelback()
+    invalid_minima = validate_minima(ktn, coords, potential, processes=2)
+    assert_that(invalid_minima).contains_only(1, 3, 4)
+    
 def test_get_bounds_minima():
     coords = StandardCoordinates(ndim=3, bounds=[(-5.0, 5.0),
                                                  (-5.0, 5.0),
@@ -149,8 +153,8 @@ def ktn_single_minimum() -> KineticTransitionNetwork:
 
 @pytest.fixture
 def ktn_multiple_minima(ktn_single_minimum) -> KineticTransitionNetwork:
-    ktn_single_minimum.add_minimum(np.array([0.5,0.5,0.5]), 0.5)
-    ktn_single_minimum.add_minimum(np.array([1,1,1]), 1)
+    for i in range(10):
+        ktn_single_minimum.add_minimum(np.array([i/10,i/10,i/10]), 0.5)
 
     return ktn_single_minimum
 
@@ -200,7 +204,7 @@ def test_validate_flags_invalid_when_some_lbfgs_results_do_not_match_min_energy(
     mock_fmin = mocker.patch("topsearch.analysis.minima_properties.fmin_l_bfgs_b")
     mock_fmin.return_value = (np.array([0,0,0]), 0.0001, None)
     
-    assert_that(validate_minima(ktn_multiple_minima, coords_3d, mocker.MagicMock())).contains_only(1,2)    
+    assert_that(validate_minima(ktn_multiple_minima, coords_3d, mocker.MagicMock())).contains_only(*range(1,11))    
 
 
 def test_validate_succeeds_when_lbfgs_results_close_to_min_energy(mocker, ktn_single_minimum: KineticTransitionNetwork, coords_3d):
@@ -209,12 +213,15 @@ def test_validate_succeeds_when_lbfgs_results_close_to_min_energy(mocker, ktn_si
     invalid_minima = validate_minima(ktn_single_minimum, coords_3d, mocker.MagicMock())      
     assert_that(invalid_minima).is_empty()
 
-def test_validate_succeeds_when_all_lbfgs_results_close_to_min_energy(mocker, ktn_multiple_minima: KineticTransitionNetwork, coords_3d):
+def test_validate_succeeds_when_all_lbfgs_results_close_to_min_energy(mocker, ktn_single_minimum: KineticTransitionNetwork, coords_3d):
+    ktn_single_minimum.add_minimum(np.array([0.5,0.5,0.5]), 0.5)
+    ktn_single_minimum.add_minimum(np.array([1,1,1]), 1)
+
     mock_fmin = mocker.patch("topsearch.analysis.minima_properties.fmin_l_bfgs_b")
     mock_fmin.side_effect = [(np.array([0,0,0]), 0.0001, None),
                              (np.array([0.5,0.5,0.5]), 0.5001, None),
                              (np.array([1,1,1]), 0.9999, None)]
-    invalid_minima = validate_minima(ktn_multiple_minima, coords_3d, mocker.MagicMock())      
+    invalid_minima = validate_minima(ktn_single_minimum, coords_3d, mocker.MagicMock())      
     assert_that(invalid_minima).is_empty()
 
 def test_validate_succeeds_when_gradient_close_to_zero(mocker, ktn_single_minimum, coords_3d):

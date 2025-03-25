@@ -15,7 +15,7 @@ from topsearch.data.kinetic_transition_network import KineticTransitionNetwork
 from topsearch.data.model_data import ModelData
 from topsearch.potentials.potential import Potential
 from topsearch.similarity.similarity import StandardSimilarity
-
+from topsearch.utils.parallel import run_parallel
 
 def get_invalid_minima(ktn: KineticTransitionNetwork, potential: Potential, coords: StandardCoordinates, processes=0) -> list[int]:
     """ Find any minima in the network G that do not meet the
@@ -118,11 +118,26 @@ def get_distance_from_minimum(ktn: KineticTransitionNetwork, similarity: Standar
         dist_vector[i] = similarity.closest_distance(coords, coords2)
     return dist_vector
 
-def validate_minima(ktn: KineticTransitionNetwork, coords: StandardCoordinates, interpolation: Potential) -> List[int]:
+def validate_minima(ktn: KineticTransitionNetwork, coords: StandardCoordinates, interpolation: Potential, processes=0) -> List[int]:
     logger = logging.getLogger("minima_validation")
-
+    logger.debug(f"Validating {ktn.n_minima} with lbfgs using {processes} processes")
     invalid_minima = []
-    for i in range(ktn.n_minima):
+    
+    if processes > 0:
+        batch_size = int(np.ceil(ktn.n_minima/processes))
+        for invalid_minima_in_batch in run_parallel(validate_minima_batch, 
+                                                    range(0, ktn.n_minima, batch_size), 
+                                                    [batch_size, ktn, coords, interpolation], processes=processes):
+            invalid_minima.extend(invalid_minima_in_batch)
+    else:
+        invalid_minima = validate_minima_batch(0, ktn.n_minima, ktn, coords, interpolation)
+
+    return invalid_minima
+
+def validate_minima_batch(start_index: int, n: int, ktn: KineticTransitionNetwork, coords: StandardCoordinates, interpolation: Potential):
+    logger = logging.getLogger("minima_validation")
+    invalid_minima = []
+    for i in range(start_index, min(start_index+n, ktn.n_minima)):
         try:
             min_coords = ktn.get_minimum_coords(i)
             min_energy = ktn.get_minimum_energy(i)
@@ -138,8 +153,8 @@ def validate_minima(ktn: KineticTransitionNetwork, coords: StandardCoordinates, 
             assert_allclose(min_coords, x, atol=1e-3, err_msg="Minimum coords from basin hopping do not match values from l-bfgs-b", verbose=True)
             assert_allclose(min_energy, f, atol=1e-3, err_msg="Minimum energy from basin hopping does not match value from l-bfgs-b", verbose=True)
             grad = interpolation.gradient(min_coords)
-            f_plus = interpolation.function(np.clip(x + 1e-3, 0, 1))
-            f_minus = interpolation.function(np.clip(x - 1e-3, 0, 1))
+            f_plus = interpolation.function(np.clip(x + 1e-3, coords.lower_bounds, coords.upper_bounds))
+            f_minus = interpolation.function(np.clip(x - 1e-3, coords.lower_bounds, coords.upper_bounds))
             logger.debug("f_plus: %f, f_minux: %f", f_plus, f_minus)
 
             for x_j, l_bound, u_bound, grad_j in zip (min_coords, coords.lower_bounds, coords.upper_bounds, grad):
@@ -150,5 +165,4 @@ def validate_minima(ktn: KineticTransitionNetwork, coords: StandardCoordinates, 
 
         except AssertionError:
             invalid_minima.append(i)
-    
     return invalid_minima
