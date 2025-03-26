@@ -128,7 +128,8 @@ class NetworkSampling:
             self.logger.debug("Validating minima using eigenvalues")
             invalid_min = get_invalid_minima(self.ktn,
                                              self.global_optimiser.potential,
-                                             coords)
+                                             coords,
+                                             processes=self.n_processes)
             self.logger.info(f"Found {len(invalid_min)} invalid minima due to eigenvalues")
             self.ktn.remove_minima(invalid_min)
 
