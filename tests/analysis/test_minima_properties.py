@@ -37,8 +37,6 @@ def test_get_invalid_minima():
     assert np.all(minima == np.array([9]))
 
 def test_validate_minima_with_lbfgs_parallel():
-    
-    
     coords = StandardCoordinates(ndim=2, bounds=[(-3.0, 3.0), (-2.0, 2.0)])
     ktn = KineticTransitionNetwork()
     ktn.add_minimum(np.array([0.08984199, -0.7126564 ]), -1.0316284534898734)
@@ -51,6 +49,17 @@ def test_validate_minima_with_lbfgs_parallel():
     invalid_minima = validate_minima(ktn, coords, potential, processes=2)
     assert_that(invalid_minima).contains_only(1, 3, 4)
     
+def test_validate_minima_with_eigenvalues_parallel():
+    coords = StandardCoordinates(ndim=2, bounds=[(-3.0, 3.0), (-2.0, 2.0)])
+    ktn = KineticTransitionNetwork()
+    ktn.add_minimum(np.array([0.08984199, -0.7126564 ]), -1.0316284534898734)
+    ktn.add_minimum(np.array([0, 0]), 0)
+    ktn.add_minimum(np.array([1.60710479, 0.56865138]), 2.104250310311282)
+
+    potential = Camelback()
+    invalid_minima = get_invalid_minima(ktn, potential, coords, processes=2)
+    assert_that(invalid_minima).contains_only(1)
+
 def test_get_bounds_minima():
     coords = StandardCoordinates(ndim=3, bounds=[(-5.0, 5.0),
                                                  (-5.0, 5.0),

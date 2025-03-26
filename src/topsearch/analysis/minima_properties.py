@@ -22,7 +22,21 @@ def get_invalid_minima(ktn: KineticTransitionNetwork, potential: Potential, coor
         gradient or eigenspectrum criteria """
     invalid_minima = []
     # Check if each minimum passes the test for gradient and eigenvalues
-    for i in range(ktn.n_minima):
+    if processes > 0:
+        batch_size = int(np.ceil(ktn.n_minima/processes))
+        for invalid_minima_in_batch in run_parallel(get_invalid_minima_eigenvalues_batch, 
+                                                    range(0, ktn.n_minima, batch_size), 
+                                                    [batch_size, ktn, potential, coords], processes=processes):
+            invalid_minima.extend(invalid_minima_in_batch)
+    else:
+        invalid_minima = get_invalid_minima_eigenvalues_batch(0, ktn.n_minima, ktn, potential, coords)
+
+    return invalid_minima
+
+def get_invalid_minima_eigenvalues_batch(start_index: int, n: int, ktn: KineticTransitionNetwork, potential: Potential, coords: StandardCoordinates):
+    invalid_minima = []
+    
+    for i in range(start_index, min(start_index+n, ktn.n_minima)):
         min_position = ktn.G.nodes[i]['coords']
         coords.position = min_position
         # Check if valid minimum by eigenvalues

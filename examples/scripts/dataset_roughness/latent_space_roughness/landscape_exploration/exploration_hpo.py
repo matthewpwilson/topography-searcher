@@ -97,8 +97,7 @@ def exploration(trial: optuna.Trial, percent_pairs=100, ts_steps=200):
                         n_steps=5,
                         conv_crit=trial.suggest_float('conv_crit', 1e-6, 1e-1),
                         temperature=trial.suggest_float('temperature', 10.0, 100.0),
-                        test_valid=False,
-                        test_valid_lbfgs=True,
+                        test_valid=True,
                         initial_positions=model_data.training)
     
     if ktn.n_minima > 0: 
@@ -115,6 +114,7 @@ def exploration(trial: optuna.Trial, percent_pairs=100, ts_steps=200):
     explorer.get_transition_states(method='ClosestEnumeration',
                                             cycles=8,
                                             remove_bounds_minima=True,
+                                            all_bounds=True,
                                             trial=trial,
                                             percent_pairs=percent_pairs,
                                             connection_ratio=True)
