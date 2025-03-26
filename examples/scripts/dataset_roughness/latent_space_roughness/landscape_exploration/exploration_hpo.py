@@ -44,7 +44,10 @@ def interpolation(trial):
 
 def explore(trial: optuna.Trial, percent_pairs=100, ts_steps=200):
     ktn = exploration(trial, percent_pairs, ts_steps)
-    return ktn.n_ts/len(ktn.pairlist)
+    if ktn.n_ts > 0:
+        return ktn.n_ts/len(ktn.pairlist)
+    
+    return 0
 
 def exploration(trial: optuna.Trial, percent_pairs=100, ts_steps=200):
     ktn = KineticTransitionNetwork()
