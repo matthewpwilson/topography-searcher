@@ -24,6 +24,7 @@ from topsearch.analysis.minima_properties import get_minima_energies
 ## BEGIN CALCULATIONS
 
 import os
+import time
 os.environ["LOGLEVEL"] = "DEBUG"
 from topsearch.transition_states.hybrid_eigenvector_following import HybridEigenvectorFollowing
 from topsearch.transition_states.nudged_elastic_band import NudgedElasticBand
@@ -34,20 +35,27 @@ logger = logging.getLogger()
 def interpolation(trial):
     interpolation = KNeighborsRegressor(trial.suggest_int("interpolation_neighbours", low=3, high=20), weights="distance")
     cv = KFold(n_splits=5, shuffle=True)
+    start = time.perf_counter_ns()
     cv_results = cross_validate(interpolation,
                                 model_data_all.training,
                                 model_data_all.response,
                                 cv=cv,
                                 scoring="neg_mean_squared_error",
                                 n_jobs=None)
+    end = time.perf_counter_ns()
+    trial.set_user_attr("cross validaiton time", end - start)
     return cv_results['test_score'].mean() * -1
 
 def explore(trial: optuna.Trial, percent_pairs=100, ts_steps=200):
     ktn = exploration(trial, percent_pairs, ts_steps)
     return ktn.n_ts/len(ktn.pairlist)
 
-def exploration(trial: optuna.Trial, percent_pairs=100, ts_steps=200):
+def exploration(trial: optuna.Trial, percent_pairs=100, ts_steps=200, resume=False):
+
     ktn = KineticTransitionNetwork()
+    if resume:
+        ktn.read_network()
+
      # Specify the coordinates for optimisation. We will optimise in a space
 # of three dimensions, and select the standard bounds used for interpolation
     coords = StandardCoordinates(ndim=model_data.n_dims, bounds=bounds)
@@ -160,7 +168,7 @@ if __name__ == '__main__':
     )
 
     model_data_all =  ModelData(training_file='./CHEMBL231_KI_more_fps_train.txt', # position of data points in feature space
-                        response_file='../CHEMBL231_KI_response_train.txt') # corresponding response values
+                        response_file='../chembl231_pki_response_train.txt') # corresponding response values
     bounds = [(0.0, 1.0) for _ in range(model_data_all.n_dims)]
     # Remove duplicate training data
     model_data_all.remove_duplicates()
@@ -244,10 +252,17 @@ if __name__ == '__main__':
         "max_images": 30,
         "neb_conv_crit": 0.1
     }
-    study.enqueue_trial(starting_params_latent_space)
-    study.enqueue_trial(starting_params_dataset)
-    study.enqueue_trial(starting_params_schwefel)
-    study.optimize(lambda trial: explore(trial, 100, 10), n_trials=100, n_jobs=1, show_progress_bar=True, callbacks=[StopWhenTSSearchnGoalReached(), StopWhenTrialKeepBeingPrunedCallback(10)])
+    failed_trials = study.get_trials(states=[optuna.trial.TrialState.FAIL])
+    if len(failed_trials) > 0:
+        logger.debug(f"Requeuing failed trial {study.trials[-1]}")
+    else:
+        logger.debug("No failed trials")        
+
+    #study.enqueue_trial(starting_params_latent_space, skip_if_exists=True)
+    #study.enqueue_trial(starting_params_dataset, skip_if_exists=True)
+    #study.enqueue_trial(starting_params_schwefel, skip_if_exists=True)
+    
+    #study.optimize(lambda trial: explore(trial, 100, 10), n_trials=100, n_jobs=1, show_progress_bar=True, callbacks=[StopWhenTSSearchnGoalReached(warmup_trials=5), StopWhenTrialKeepBeingPrunedCallback(10)])
 
     logger.info(f"Best connection ratio during optimisation = {study.best_value}")
 
@@ -256,7 +271,8 @@ if __name__ == '__main__':
     model_data = model_data_all
     interpolator = DatasetRegression(model_data_all, model_type="KNeighbors", neighbors=interpolation_study.best_params["interpolation_neighbours"])
 
-    ktn = exploration(study.best_trial)
+
+    ktn = exploration(study.best_trial, resume=True)
     # Dump the minima we found to files min.data and min.coords
 
     ktn.dump_network()

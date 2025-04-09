@@ -5,6 +5,7 @@ logfile*
 pairlist*
 ts.*
 frustration.txt
+attempted.coords*
 
 # Byte-compiled / optimized / DLL files
 __pycache__/

@@ -111,6 +111,7 @@ def exploration(trial: optuna.Trial, percent_pairs=100, ts_steps=200):
     explorer.get_transition_states(method='ClosestEnumeration',
                                             cycles=8,
                                             remove_bounds_minima=True,
+                                            all_bounds=True,
                                             trial=trial,
                                             percent_pairs=percent_pairs,
                                             connection_ratio=True)
@@ -160,7 +161,7 @@ if __name__ == '__main__':
     )
 
     model_data_all =  ModelData(training_file='./CHEMBL231_KI_smi_ted_train.txt', # position of data points in feature space
-                        response_file='../CHEMBL231_KI_response_train.txt') # corresponding response values
+                        response_file='../chembl231_pki_response_train.txt') # corresponding response values
     bounds = [(0.0, 1.0) for _ in range(model_data_all.n_dims)]
     # Remove duplicate training data
     model_data_all.remove_duplicates()
@@ -195,7 +196,7 @@ if __name__ == '__main__':
 
     basin_hopping_steps = model_data_subset.training.shape[0]
     minima_pair_steps = 20
-    study = optuna.create_study(study_name=Path(__file__).resolve().parent.name, load_if_exists=True, direction="maximize", pruner=optuna.pruners.MedianPruner(n_startup_trials=3, n_warmup_steps=basin_hopping_steps+minima_pair_steps, n_min_trials=3), storage=storage)
+
     starting_params_schwefel = {
         "max_displacement": 1.0,
         "conv_crit": 1e-5,
@@ -244,9 +245,18 @@ if __name__ == '__main__':
         "max_images": 30,
         "neb_conv_crit": 0.1
     }
-    study.enqueue_trial(starting_params_latent_space)
-    study.enqueue_trial(starting_params_dataset)
-    #study.enqueue_trial(starting_params_schwefel)
+
+    study = optuna.create_study(study_name=Path(__file__).resolve().parent.name, load_if_exists=True, direction="maximize", pruner=optuna.pruners.MedianPruner(n_startup_trials=3, n_warmup_steps=basin_hopping_steps+minima_pair_steps, n_min_trials=3), storage=storage)
+    failed_trials = study.get_trials(states=[optuna.trial.TrialState.FAIL])
+    if len(failed_trials) > 0:
+        logger.debug(f"Requeuing failed trial {study.trials[-1]}")
+    else:
+        logger.debug("No failed trials")        
+
+    study.enqueue_trial(starting_params_latent_space, skip_if_exists=True)
+    study.enqueue_trial(starting_params_dataset, skip_if_exists=True)
+    study.enqueue_trial(starting_params_schwefel, skip_if_exists=True)
+    
     study.optimize(lambda trial: explore(trial, 100, 10), n_trials=100, n_jobs=1, show_progress_bar=True, callbacks=[StopWhenTSSearchnGoalReached(warmup_trials=5), StopWhenTrialKeepBeingPrunedCallback(10)])
 
     logger.info(f"Best connection ratio during optimisation = {study.best_value}")
