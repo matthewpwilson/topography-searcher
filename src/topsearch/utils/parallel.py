@@ -18,6 +18,7 @@ def run_parallel(func: Callable, arglist: Collection, extra_args: List= [], proc
     if executor is None or executor._max_workers != processes or current_threads != threads_per_process:
         logger.debug(f"Resizing process pool to {processes} with {threads_per_process} threads per process")
         threadpoolctl.threadpool_limits(threads_per_process)
+        logger.debug(threadpoolctl.threadpool_info())
         executor = ProcessPoolExecutor(processes, mp.get_context("spawn"))
 
     futures = {}
