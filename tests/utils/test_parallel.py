@@ -1,7 +1,9 @@
 from multiprocessing import Manager, current_process
 from assertpy import assert_that
 from topsearch.utils.parallel import run_parallel
-
+# Needed for threadpool limit tests
+import numpy
+import threadpoolctl
 
 def test_calls_function_with_each_arg():
     results = run_parallel(to_upper, ["dog", "cat"])
@@ -31,6 +33,22 @@ def test_creates_new_process_pool_when_requested_size_different():
     from topsearch.utils.parallel import executor
     assert_that(executor._max_workers).is_equal_to(3)
 
+def test_sets_thread_pool_sizes():
+    result = list(run_parallel(to_upper, ["dog", "cat", "mouse", "bear"], processes=3, max_threads=14))
+    assert_that(result).is_not_none()
+    assert_that(threadpoolctl.threadpool_info()).extracting('num_threads').contains_only(4)
+
+def test_limits_process_pool_size_to_number_of_inputs():
+    result = list(run_parallel(to_upper, ["dog", "cat", "mouse", "bear"], processes=8))
+    assert_that(result).is_not_none()
+    from topsearch.utils.parallel import executor
+    assert_that(executor._max_workers).is_equal_to(4)
+
+def test_sets_appropriate_thread_limit_when_process_pool_limited_to_number_of_inputs():
+    result = list(run_parallel(to_upper, ["dog", "cat", "mouse", "bear"], processes=8, max_threads=16))
+    assert_that(result).is_not_none()
+    assert_that(threadpoolctl.threadpool_info()).extracting('num_threads').contains_only(4)
+   
 def return_process_id(input: str):
     return current_process().name
 

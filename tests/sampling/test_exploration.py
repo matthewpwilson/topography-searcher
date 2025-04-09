@@ -102,7 +102,7 @@ def test_batch_does_not_repeated_attempted_initial_positions(mocker):
     ktn.add_attempted_position(starting_points[2])
 
     sampler.get_minima(initial_positions=starting_points, coords=coords, n_steps=5,
-                      temperature=1.0, conv_crit=1e-6)
+                      temperature=1.0, conv_crit=1e-6, test_valid=False)
     run_batch.assert_called()
     print(run_batch.call_args)
     assert_array_equal(run_batch.call_args.kwargs["initial_positions"], starting_points[3:6])

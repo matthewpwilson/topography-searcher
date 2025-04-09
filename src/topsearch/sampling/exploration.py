@@ -171,14 +171,15 @@ class NetworkSampling:
 
     # CONNECTING MINIMA FUNCTIONS
 
-    def run_connection_attempts(self, total_pairs: list, trial: optuna.trial.Trial, connection_ratio) -> None:
+    def run_connection_attempts(self, total_pairs: list, trial: optuna.trial.Trial = None, connection_ratio = False) -> None:
         """
         Given the pairs of minima that have been selected for connection,
         run the connection attempts in parallel or serial and add any
         new transition states to the network
         """
         self.logger.info(f"Running connection attempts for {len(total_pairs)} pairs")
-        trial.set_user_attr("attempted_pairs", len(total_pairs))
+        if trial is not None:
+            trial.set_user_attr("attempted_pairs", len(total_pairs))
         # Set off connection attempts from the list total_pairs
         if self.multiprocessing_on:
             results = run_parallel(self.connection_attempt, total_pairs, processes=self.n_processes, return_input=True)

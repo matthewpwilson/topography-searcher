@@ -289,7 +289,15 @@ def test_feature_subset():
 def test_data_subset_returns_requested_number_of_points():
     model_data = ModelData(training_file=f'{current_dir}/test_data/training_model2.txt',
                            response_file=f'{current_dir}/test_data/response_model2.txt')
-    subset = model_data.data_subset(percent_points=10)
+    subset = model_data.data_subset(percent_points=10, min_points=10)
     assert subset.n_points == model_data.n_points/10
+    assert subset.training.shape[0] == subset.n_points
+    assert subset.response.shape[0] == subset.n_points
+
+def test_data_subset_no_smaller_than_min_points():
+    model_data = ModelData(training_file=f'{current_dir}/test_data/training_model2.txt',
+                           response_file=f'{current_dir}/test_data/response_model2.txt')
+    subset = model_data.data_subset(percent_points=10, min_points=100)
+    assert subset.n_points == 100
     assert subset.training.shape[0] == subset.n_points
     assert subset.response.shape[0] == subset.n_points
