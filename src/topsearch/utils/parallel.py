@@ -5,6 +5,8 @@ import threadpoolctl
 import logging
 import os
 import math
+from topsearch.utils.logging import configure_logging
+
 logger = logging.getLogger("parallel")
 logger.debug(threadpoolctl.threadpool_info())
 logger.debug(f"cpu_count: {os.cpu_count()}")
@@ -19,7 +21,7 @@ def run_parallel(func: Callable, arglist: Collection, extra_args: List= [], proc
         logger.debug(f"Resizing process pool to {processes} with {threads_per_process} threads per process")
         threadpoolctl.threadpool_limits(threads_per_process)
         logger.debug(threadpoolctl.threadpool_info())
-        executor = ProcessPoolExecutor(processes, mp.get_context("spawn"))
+        executor = ProcessPoolExecutor(processes, mp.get_context("spawn"), pool_worker_init, tuple([threads_per_process]))
 
     futures = {}
     for arg in arglist:
@@ -31,4 +33,10 @@ def run_parallel(func: Callable, arglist: Collection, extra_args: List= [], proc
             yield futures[future], future.result()
         else:     
             yield future.result()
-        
+    
+def pool_worker_init(threads: int):
+    configure_logging()
+    logger = logging.getLogger("parallel")
+    logger.debug(f"Worker initializing with {threads} threads cpu_count: {os.cpu_count()}")
+    threadpoolctl.threadpool_limits(threads)
+    logger.debug(threadpoolctl.threadpool_info())
