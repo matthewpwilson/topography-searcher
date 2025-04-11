@@ -1,6 +1,7 @@
 ## Global optimisation of the interpolation function
 
 # IMPORTS
+import argparse
 import logging
 import math
 from pathlib import Path
@@ -32,7 +33,7 @@ configure_logging()
 logger = logging.getLogger()
 
 def interpolation(trial):
-    interpolation = KNeighborsRegressor(trial.suggest_int("interpolation_neighbours", low=3, high=20))
+    interpolation = KNeighborsRegressor(trial.suggest_int("interpolation_neighbours", low=3, high=20), weights="distance")
     cv = KFold(n_splits=5, shuffle=True)
     cv_results = cross_validate(interpolation,
                                 model_data_all.training,
@@ -44,13 +45,12 @@ def interpolation(trial):
 
 def explore(trial: optuna.Trial, percent_pairs=100, ts_steps=200):
     ktn = exploration(trial, percent_pairs, ts_steps)
-    if ktn.n_ts > 0:
-        return ktn.n_ts/len(ktn.pairlist)
-    
-    return 0
+    return ktn.n_ts/len(ktn.pairlist)
 
-def exploration(trial: optuna.Trial, percent_pairs=100, ts_steps=200):
+def exploration(trial: optuna.Trial, percent_pairs=100, ts_steps=200, resume=False):
     ktn = KineticTransitionNetwork()
+    if resume:
+        ktn.read_network()
      # Specify the coordinates for optimisation. We will optimise in a space
 # of three dimensions, and select the standard bounds used for interpolation
     coords = StandardCoordinates(ndim=model_data.n_dims, bounds=bounds)
@@ -71,7 +71,7 @@ def exploration(trial: optuna.Trial, percent_pairs=100, ts_steps=200):
                                     steepest_descent_conv_crit=trial.suggest_float("steepest_descent_conv_crit", low=1e-6, high=1e-2), # convergence criterion for local minimisation
                                     max_uphill_step_size=trial.suggest_float("max_uphill_step_size", low=0.1, high=10), # largest allowed step in a single direction
                                     min_uphill_step_size=trial.suggest_float("min_uphill_step_size", low=1e-10, high=1e-6), # smallest allowed step in a single direction
-                                    eigenvalue_conv_crit=trial.suggest_float("eignevalue_conv_crit", low=1e-6, high=1e-2), # convergence criterion for finding the smallest eigenvalue
+                                    eigenvalue_conv_crit=trial.suggest_float("eigenvalue_conv_crit", low=1e-6, high=1e-2), # convergence criterion for finding the smallest eigenvalue
                                     positive_eigenvalue_step=trial.suggest_float("eigenvalue_step", low=1e-2, high=1))
     
     # Double ended transition state search that locates approximate minimum energy
@@ -90,14 +90,15 @@ def exploration(trial: optuna.Trial, percent_pairs=100, ts_steps=200):
                             double_ended_search=neb,
                             similarity=comparer,
                             multiprocessing_on=True,
-                            n_processes=15)
+                            n_processes=args.processes)
 
     step_taking.max_displacement = trial.suggest_float('max_displacement', 0.1, 1.0)
     explorer.get_minima(coords=coords,
                         n_steps=5,
                         conv_crit=trial.suggest_float('conv_crit', 1e-6, 1e-1),
                         temperature=trial.suggest_float('temperature', 10.0, 100.0),
-                        test_valid=True,
+                        test_valid=False,
+                        test_valid_lbfgs=True,
                         initial_positions=model_data.training)
     
     if ktn.n_minima > 0: 
@@ -107,7 +108,6 @@ def exploration(trial: optuna.Trial, percent_pairs=100, ts_steps=200):
         energies = [math.inf]
 
     trial.set_user_attr("n_minima", ktn.n_minima)
-    
 
     ktn.dump_network(f".trial_{trial.number}")
 
@@ -136,6 +136,8 @@ class StopWhenTrialKeepBeingPrunedCallback:
         if self._consequtive_pruned_count >= self.threshold:
             logger.info(f"Stopping optimization due to {self._consequtive_pruned_count} pruned trials")
             study.stop()
+            study.set_user_attr("done", True)
+
 
 class StopWhenTSSearchnGoalReached:
     def __init__(self, goal: float = 0.75, warmup_trials: int = 3):
@@ -147,7 +149,7 @@ class StopWhenTSSearchnGoalReached:
             if study.best_value > self.goal:
                 logger.info(f"Stopping optimization because best study found {study.best_trial.value} TSs out of {study.best_trial.user_attrs['attempted_pairs']} pairs attempted")
                 study.stop()
-
+                study.set_user_attr("done", True)
 
 
 # study_name = "example-study"  # Unique identifier of the study.
@@ -157,14 +159,21 @@ class StopWhenTSSearchnGoalReached:
 # )
 if __name__ == '__main__':    
     # INITIALISATION
+    parser = argparse.ArgumentParser()
+
+    parser.add_argument('--training', type=str, required=True, help="Path to training dataset")
+    parser.add_argument('--response', type=str, required=True, help="Path to response dataset")
+    parser.add_argument('--use-study-hyperparams', default=False, action='store_true', help="Use the hyperparameters from a saved study")
+    parser.add_argument('--processes', type=int, default=os.cpu_count(), help="Number of processes")
+    args = parser.parse_args()
 
     file_path = "./optuna_journal_storage.log"
     storage = optuna.storages.JournalStorage(
                optuna.storages.journal.JournalFileBackend(file_path),  # NFS path for distributed optimization
     )
 
-    model_data_all =  ModelData(training_file='../data_generation/expected_output/selfies-ted-mini-training.txt', # position of data points in feature space
-                        response_file='../data_generation/expected_output/selfies-ted-mini-response.txt') # corresponding response values
+    model_data_all =  ModelData(training_file=args.training, # position of data points in feature space
+                        response_file=args.response) # corresponding response values
     bounds = [(0.0, 1.0) for _ in range(model_data_all.n_dims)]
     # Remove duplicate training data
     model_data_all.remove_duplicates()
@@ -172,18 +181,7 @@ if __name__ == '__main__':
     model_data_all.normalise_training()
     model_data_all.normalise_response()
 
-    # Find best shape param for interpolation function on whole dataset
-    interpolation_study = optuna.create_study(storage=storage, direction="minimize")
-    interpolation_study.optimize(interpolation, n_trials=50, n_jobs=1, show_progress_bar=True)
-
-    logger.info(f"Best interpolation parameters: {interpolation_study.best_params} MSE: {interpolation_study.best_value}")
-
-    model_data_subset = model_data_all.data_subset(percent_points=1)
-    
-    model_data = model_data_subset
-    interpolator = DatasetRegression(model_data_subset, model_type="KNeighbors", neighbors=interpolation_study.best_params["interpolation_neighbours"])
-
-    # Specify the simple test function we will perform global optimisation on
+     # Specify the simple test function we will perform global optimisation on
     # Similarity object, decides if two points are the same or different
     # Same if distance between points is less than distance_criterion
     # and the difference in function value is less than energy_criterion
@@ -197,74 +195,106 @@ if __name__ == '__main__':
     step_taking = StandardPerturbation(max_displacement=1.0,
                                     proportional_distance=True)
 
-    basin_hopping_steps = model_data_subset.training.shape[0]
     minima_pair_steps = 20
-    study = optuna.create_study(study_name=Path(__file__).resolve().parent.name, load_if_exists=True, direction="maximize", pruner=optuna.pruners.MedianPruner(n_startup_trials=3, n_warmup_steps=basin_hopping_steps+minima_pair_steps, n_min_trials=3), storage=storage)
-    starting_params_schwefel = {
-        "max_displacement": 1.0,
-        "conv_crit": 1e-5,
-        "temperature": 100.0,
-        "ts_conv_crit": 1e-4,
-        "pushoff": 1.0,
-        "steepest_descent_conv_crit":1e-6,
-        "max_uphill_step_size": 1,
-        "min_uphill_step_size": 1e-7,
-        "eigenvalue_conv_crit": 1e-5,
-        "positive_eigenvalue_step": 0.1,
-        "force_constant": 10,
-        "image_density": 10.0,
-        "max_images": 45,
-        "neb_conv_crit": 1e-2
-    }
-    starting_params_dataset = {
-        "max_displacement": 1.0,
-        "conv_crit": 1e-4,
-        "temperature": 100.0,
-        "ts_conv_crit": 5e-4,
-        "pushoff":5e-3,
-        "steepest_descent_conv_crit":1e-4,
-        "max_uphill_step_size": 1e1,
-        "min_uphill_step_size": 1e-8,
-        "eigenvalue_conv_crit": 1e-3,
-        "positive_eigenvalue_step": 1e-2,
-        "force_constant": 5e2,
-        "image_density": 50.0,
-        "max_images": 30,
-        "neb_conv_crit": 1e-2
-    }
-    starting_params_latent_space = {
-        "max_displacement": 1.0,
-        "conv_crit": 1e-2,
-        "temperature": 100.0,
-        "ts_conv_crit": 5e-2,
-        "pushoff":5e-3,
-        "steepest_descent_conv_crit":1e-4,
-        "max_uphill_step_size": 3e-1,
-        "min_uphill_step_size": 1e-7,
-        "eigenvalue_conv_crit": 1e-2,
-        "positive_eigenvalue_step": 3e-1,
-        "force_constant": 5e2,
-        "image_density": 10.0,
-        "max_images": 30,
-        "neb_conv_crit": 0.1
-    }
-    study.enqueue_trial(starting_params_latent_space)
-    study.enqueue_trial(starting_params_dataset)
-    study.enqueue_trial(starting_params_schwefel)
-    study.optimize(lambda trial: explore(trial, 100, 10), n_trials=100, n_jobs=1, show_progress_bar=True, callbacks=[StopWhenTSSearchnGoalReached(), StopWhenTrialKeepBeingPrunedCallback(10)])
+    main_study = optuna.create_study(study_name=Path.cwd().name, load_if_exists=True, direction="maximize", pruner=optuna.pruners.MedianPruner(n_startup_trials=3, n_warmup_steps=minima_pair_steps, n_min_trials=3), storage=storage)
+    interpolation_study = optuna.create_study(study_name="interpolation", storage=storage, direction="minimize", load_if_exists=True)
+    interpolation_study.optimize(interpolation, n_trials=50, n_jobs=1, show_progress_bar=True)
+    if not args.use_study_hyperparams and "done" not in main_study.user_attrs:
 
-    logger.info(f"Best connection ratio during optimisation = {study.best_value}")
+        # Find best shape param for interpolation function on whole dataset
+        
 
-    logger.info(f"Total trials: {len(study.trials)}, Completed trials: {len(study.get_trials(states=[optuna.trial.TrialState.COMPLETE]))} Pruned: {len(study.get_trials(states=[optuna.trial.TrialState.PRUNED]))} ")
-    logger.info(f"Best hyperparameters: {study.best_trial.params}")
+        logger.info(f"Best interpolation parameters: {interpolation_study.best_params} MSE: {interpolation_study.best_value}")
+        interpolator = DatasetRegression(model_data_all, model_type="KNeighbors", neighbors=interpolation_study.best_params["interpolation_neighbours"])
+
+        model_data_subset = model_data_all.data_subset(percent_points=1)
+        
+        model_data = model_data_subset
+
+        starting_params_schwefel = {
+            "max_displacement": 1.0,
+            "conv_crit": 1e-5,
+            "temperature": 100.0,
+            "ts_conv_crit": 1e-4,
+            "pushoff": 1.0,
+            "steepest_descent_conv_crit":1e-6,
+            "max_uphill_step_size": 1,
+            "min_uphill_step_size": 1e-7,
+            "eigenvalue_conv_crit": 1e-5,
+            "eigenvalue_step": 0.1,
+            "force_constant": 10,
+            "image_density": 10.0,
+            "max_images": 45,
+            "neb_conv_crit": 1e-2
+        }
+        starting_params_dataset = {
+            "max_displacement": 1.0,
+            "conv_crit": 1e-4,
+            "temperature": 100.0,
+            "ts_conv_crit": 5e-4,
+            "pushoff":5e-3,
+            "steepest_descent_conv_crit":1e-4,
+            "max_uphill_step_size": 1e1,
+            "min_uphill_step_size": 1e-8,
+            "eigenvalue_conv_crit": 1e-3,
+            "eigenvalue_step": 1e-2,
+            "force_constant": 5e2,
+            "image_density": 50.0,
+            "max_images": 30,
+            "neb_conv_crit": 1e-2
+        }
+        starting_params_latent_space = {
+            "max_displacement": 1.0,
+            "conv_crit": 1e-2,
+            "temperature": 100.0,
+            "ts_conv_crit": 5e-2,
+            "pushoff":5e-3,
+            "steepest_descent_conv_crit":1e-4,
+            "max_uphill_step_size": 3e-1,
+            "min_uphill_step_size": 1e-7,
+            "eigenvalue_conv_crit": 1e-2,
+            "eigenvalue_step": 3e-1,
+            "force_constant": 5e2,
+            "image_density": 10.0,
+            "max_images": 30,
+            "neb_conv_crit": 0.1
+        }
+
+        failed_trials = main_study.get_trials(states=[optuna.trial.TrialState.FAIL])
+        if len(failed_trials) > 0:
+            logger.debug(f"Requeuing failed trial {main_study.trials[-1]}")
+        else:
+            logger.debug("No failed trials")        
+
+        main_study.enqueue_trial(starting_params_latent_space, skip_if_exists=True)
+        main_study.enqueue_trial(starting_params_dataset, skip_if_exists=True)
+        main_study.enqueue_trial(starting_params_schwefel, skip_if_exists=True)
+        
+        main_study.optimize(lambda trial: explore(trial, 100, 10), n_trials=100, n_jobs=1, show_progress_bar=True, callbacks=[StopWhenTSSearchnGoalReached(warmup_trials=5), StopWhenTrialKeepBeingPrunedCallback(10)])
+        logger.info(f"Total trials: {len(main_study.trials)}, Completed trials: {len(main_study.get_trials(states=[optuna.trial.TrialState.COMPLETE]))} Pruned: {len(main_study.get_trials(states=[optuna.trial.TrialState.PRUNED]))} ")
+        logger.info(f"Best hyperparameters: {main_study.best_trial.params}")
+        logger.info(f"Best connection ratio during optimisation = {main_study.best_value}")
+        best_trial = main_study.best_trial
+    else:        
+        best_trial = main_study.best_trial
+        if "eignevalue_conv_crit" in best_trial.params.keys():
+            logger.debug("Renaming eignevalue_conv_crit")
+            best_trial.params["eigenvalue_conv_crit"] = best_trial.params["eignevalue_conv_crit"]
+
+        logger.info(f"Found a completed hyperparameter optimisation run, using best parameters: {best_trial.params}")
+        logger.info(f"Using best interpolation parameters: {interpolation_study.best_params} MSE: {interpolation_study.best_value}")
+
+        interpolator = DatasetRegression(model_data_all, model_type="KNeighbors", neighbors=interpolation_study.best_params["interpolation_neighbours"])
+
+
     model_data = model_data_all
-    interpolator = DatasetRegression(model_data_all, model_type="KNeighbors", neighbors=interpolation_study.best_params["interpolation_neighbours"])
-
-    ktn = exploration(study.best_trial)
-    # Dump the minima we found to files min.data and min.coords
-
+    
+    ktn = KineticTransitionNetwork()
+    ktn.read_network(text_string=f".trial_{main_study.best_trial.number}")
     ktn.dump_network()
-    # Give the energy and position of the global minimum
+
+    ktn = exploration(best_trial, resume=True)
+    ktn.dump_network()
     logger.info(f"Total minima = {ktn.n_minima}")
     if ktn.n_minima > 0:
         energies = get_minima_energies(ktn)

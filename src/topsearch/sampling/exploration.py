@@ -157,6 +157,9 @@ class NetworkSampling:
         # Run a set of initial connections for all minima
         self.logger.debug("Selecting minima pairs")
         pairs = self.select_minima(self.coords, method, cycles)
+        if len(pairs) == 0:
+            return
+        
         last_pair = int(np.ceil(len(pairs)*percent_pairs/100))
         pairs = pairs[:last_pair]
        

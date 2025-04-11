@@ -12,8 +12,14 @@ logger.debug(threadpoolctl.threadpool_info())
 logger.debug(f"cpu_count: {os.cpu_count()}")
 executor = None
 
-def run_parallel(func: Callable, arglist: Collection, extra_args: List= [], processes: int = 2, return_input = False, max_threads = os.cpu_count()):
+def run_parallel(func: Callable, arglist: Collection, extra_args: List= [], processes: int = 2, return_input = False, max_threads: int = 0):
+    if len(arglist) == 0:
+        logger.debug("Empty list of args")
+        return []
+    
     global executor
+    if max_threads == 0:
+        max_threads = processes    
     processes = min(processes, len(arglist))
     threads_per_process = int(math.floor(max_threads/processes))
     current_threads = threadpoolctl.threadpool_info()[0]["num_threads"]
