@@ -41,8 +41,8 @@ def run_parallel(func: Callable, arglist: Collection, extra_args: List= [], proc
             yield future.result()
     
 def pool_worker_init(threads: int):
+    threadpoolctl.threadpool_limits(threads)
     configure_logging()
     logger = logging.getLogger("parallel")
     logger.debug(f"Worker initializing with {threads} threads cpu_count: {os.cpu_count()}")
-    threadpoolctl.threadpool_limits(threads)
     logger.debug(threadpoolctl.threadpool_info())
